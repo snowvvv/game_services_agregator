@@ -20,12 +20,13 @@
     <br>
         <div> Текущая цена =  {{data.price}}  ₽ </div>
     <br>
-    <form method="POST" action="">
+    <form method="POST" action="/buy/{{data.id}}">
     <input type="price" class="form-control" name="price" id="price" value="{{data.price + 500}}" >
         <br>
-        <input type="price" class="form-control" name="price" id="mail" placeholder="Введите почту для отправки уведомлений!!!" >
+        <input class="form-control" name="mail" id="mail" placeholder="Введите почту для отправки уведомлений!!!" >
     <br><br>
-      <input value="Сделать ставку" type=submit class="button is-info ">  </input>
+        <input action="/buy/{{data.id}}" value="Сделать ставку" type=submit class="button is-info" name="bet">
+        <a href="{{url}}" onclick="" value="Выкупить сразу за {{data.price * 3}}" type=submit class="button is-info "> Выкупить сразу за {{data.price * 3}}</a>
         </form>
 
     <h1> Ставка принадлежит: {{data.buyer}}</h1>

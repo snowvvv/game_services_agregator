@@ -4,6 +4,7 @@ from datetime import datetime
 import smtplib
 from email.mime.multipart import MIMEMultipart  # Многокомпонентный объект
 from email.mime.text import MIMEText
+from cloudipsp import Api, Checkout
 
 from flask import Blueprint, render_template, request, redirect, url_for, send_from_directory, flash
 from flask_login import login_required, current_user
@@ -45,7 +46,8 @@ def index():
 @login_required
 def profile():
     item = Item.query.all()
-    return render_template('profile.html', data=item)
+    today = str(datetime.now())
+    return render_template('profile.html', data=item, today=today[:-16])
 
 
 @main.route('/offer', methods=['POST'])
@@ -123,12 +125,26 @@ def own_lots():
 @login_required
 def buy(id):
     item = Item.query.filter_by(id=id).first()
+
+    api = Api(merchant_id=1396424,
+              secret_key='test')
+    checkout = Checkout(api=api)
+    data = {
+        "currency": "RUB",
+        "amount":  str(item.price * 3) + '00'
+    }
+    url = checkout.url(data).get('checkout_url')
+
+
+
+
     dt = str(datetime.fromisoformat(item.final_date))[:-3]
     delta = datetime(int(dt[0:4]), int(dt[5:7]), int(dt[8:10])) - datetime.now()
     final_delta = str(delta.days) + " дней ", str(delta.seconds // 3600) + " часов ", str(
         (delta.seconds // 60) % 60) + " минут ", str(delta.seconds % 60) + " секунд "
     final_delta = ''.join(final_delta)
-    if request.method == "POST":
+    if request.method == "POST" and request.form.get('bet'):
+
         new_price = request.form.get('price')
         mail = request.form.get('mail')
         if int(new_price) > item.price:
@@ -136,7 +152,9 @@ def buy(id):
             setattr(item, 'buyer', current_user.name)
 
             db.session.commit()
-            send_email(mail, f"Ваша ставка зарегистрирована! Товар {item.title} будет доступен по цене {item.price} рублей по истечении срока лота, если вашу ставку никто не перебьет. Осталось {final_delta}")
+            send_email(mail, f"Ваша ставка зарегистрирована! Товар {item.title} будет доступен по цене {item.price} "
+                             f"рублей по истечении срока лота, если вашу ставку никто не перебьет. Осталось"
+                             f"{final_delta}")
 
         else:
             flash("Я все понимаю, но цена должна быть больше стартовой")
@@ -146,7 +164,7 @@ def buy(id):
 
 
         dts = dt[8:10] + '-' + dt[5:7] + '-' + dt[0:4] + "  00:00"
-        return render_template('buy.html', data=item, dt=final_delta)
+        return render_template('buy.html', data=item, dt=final_delta, url=url)
 
 
 @main.route('/info/<int:id>')
@@ -183,3 +201,13 @@ def change(num):
     else:
         flash('У вас нет доступа к чужим объявлениям')
         return redirect(url_for("main.profile"))
+
+@main.route('/delete/<int:num>')
+@login_required
+def delete(num):
+    item= Item.query.filter_by(id=num).first()
+    items_id = Item.query.filter_by(user_id=current_user.id).all()
+    if item in items_id:
+        db.session.delete(item)
+        db.session.commit()
+        return redirect('/own')
