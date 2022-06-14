@@ -57,7 +57,7 @@ def offer_post():
     final_date = request.form.get('final_date')
     description = request.form.get('description')
 
-    if len(title) < 1 or len(price) < 1 or len(final_date) < 1:
+    if len(title) < 1 or len(price) < 1 or len(final_date) < 1 or price<0:
         flash("Заполните все поля")
         return redirect(url_for('main.offer'))
 
@@ -152,9 +152,8 @@ def buy(id):
             setattr(item, 'buyer', current_user.name)
 
             db.session.commit()
-            send_email(mail, f"Ваша ставка зарегистрирована! Товар {item.title} будет доступен по цене {item.price} "
-                             f"рублей по истечении срока лота, если вашу ставку никто не перебьет. Осталось"
-                             f"{final_delta}")
+            #send_email(mail, f"Ваша ставка зарегистрирована! Товар {item.title} будет доступен по цене {item.price} "
+                             ##f"{final_delta}")
 
         else:
             flash("Я все понимаю, но цена должна быть больше стартовой")
