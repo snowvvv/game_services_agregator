@@ -8,4 +8,4 @@
 /dataSources.local.xml
 
 # My configurations:
-project/config.ini
+*.ini
