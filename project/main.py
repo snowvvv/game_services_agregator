@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+import configparser
 
 import smtplib
 from email.mime.multipart import MIMEMultipart  # Многокомпонентный объект
@@ -16,12 +17,14 @@ from .models import Item
 from . import UPLOAD_FOLDER, ALLOWED_EXTENSIONS
 
 main = Blueprint('main', __name__)
+config = configparser.ConfigParser()
+config.read("config.ini")
 
 
 def send_email(addr_to, body):
-    addr_from = "79506450150@yandex.ru"
-    addr_to = "bucholzevb@mail.ru"
-    password_em = '12345bogdanliza'
+    addr_from = config["send_email"]["addr_from"]
+
+    password_em = config["send_email"]["password_em"]
 
     msg = MIMEMultipart()
     msg['From'] = addr_from  # Адресат
@@ -57,16 +60,22 @@ def offer_post():
     final_date = request.form.get('final_date')
     description = request.form.get('description')
 
-    if len(title) < 1 or len(price) < 1 or len(final_date) < 1 or price<0:
+    if len(title) < 1 or len(price) < 1 or len(final_date) < 1 or int(price) < 0:
         flash("Заполните все поля")
         return redirect(url_for('main.offer'))
 
     new_item = Item(title=title, price=price, final_date=final_date, user=current_user, description=description)
-
-    db.session.add(new_item)
-    db.session.commit()
-
+    if os.path.exists(f'static/images/{new_item.id}.png'):
+        db.session.add(new_item)
+        db.session.commit()
+    else:
+        db.session.add(new_item)
+        db.session.commit()
     return redirect(url_for('main.profile'))
+# else:
+#  flash("Заполните все поля (в том числе добавьте картинку)")
+#   return redirect(url_for('main.offer'))
+# return redirect(url_for('main.profile'))
 
 
 @main.route('/offer', methods=['GET'])
@@ -80,9 +89,9 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-@main.route('/uploads', methods=['GET', 'POST'])
-def upload_file():
-    item = Item.query.filter_by(user_id=current_user.id).first()
+@main.route('/uploads/<int:id>', methods=['GET', 'POST'])
+def upload_file(id):
+    item = Item.query.filter_by(id=id).first()
     if request.method == 'POST':
         # check if the post request has the file part
         if 'file' not in request.files:
@@ -94,11 +103,11 @@ def upload_file():
         if file.filename == '':
             flash('No selected file')
             return redirect(request.url)
-        if file and allowed_file(file.filename):
+        if file and allowed_file(file.filename) and item.user_id == current_user.id:
             filename = secure_filename(file.filename)
-            file.save(os.path.join(UPLOAD_FOLDER, str(item.id) + ".png"))
+            file.save(os.path.join(UPLOAD_FOLDER, str(id) + ".png"))
+            return redirect(url_for('main.index'))
 
-            return redirect(url_for('main.uploaded_file', name=item.id))
     return '''
        <!doctype html>
        <title>Загрузите файл</title>
@@ -117,13 +126,17 @@ def uploaded_file(name):
 
 @main.route('/own')
 def own_lots():
-    item = Item.query.filter_by(user_id=current_user.id)
+    if current_user.email == config["Admin"]["email"]:
+        item = Item.query.all()
+    else:
+        item = Item.query.filter_by(user_id=current_user.id)
     return render_template('my_items.html', data=item)
 
 
 @main.route('/buy/<int:id>', methods=['GET', 'POST'])
 @login_required
 def buy(id):
+    email = request.form.get('email')
     item = Item.query.filter_by(id=id).first()
 
     api = Api(merchant_id=1396424,
@@ -131,12 +144,9 @@ def buy(id):
     checkout = Checkout(api=api)
     data = {
         "currency": "RUB",
-        "amount":  str(item.price * 3) + '00'
+        "amount": str(item.price * 3) + '00'
     }
     url = checkout.url(data).get('checkout_url')
-
-
-
 
     dt = str(datetime.fromisoformat(item.final_date))[:-3]
     delta = datetime(int(dt[0:4]), int(dt[5:7]), int(dt[8:10])) - datetime.now()
@@ -152,8 +162,8 @@ def buy(id):
             setattr(item, 'buyer', current_user.name)
 
             db.session.commit()
-            #send_email(mail, f"Ваша ставка зарегистрирована! Товар {item.title} будет доступен по цене {item.price} "
-                             ##f"{final_delta}")
+            send_email(email, f"Ваша ставка зарегистрирована! Товар {item.title} будет доступен по цене {item.price} "
+                              f" через {final_delta}")
 
         else:
             flash("Я все понимаю, но цена должна быть больше стартовой")
@@ -161,9 +171,8 @@ def buy(id):
         return redirect('/')
     else:
 
-
         dts = dt[8:10] + '-' + dt[5:7] + '-' + dt[0:4] + "  00:00"
-        return render_template('buy.html', data=item, dt=final_delta, url=url)
+        return render_template('buy.html', data=item, dt=final_delta, url=url, pic=f'/static/images/{item.id}.png')
 
 
 @main.route('/info/<int:id>')
@@ -183,14 +192,17 @@ def change_get(num):
 @main.route('/change/<int:num>', methods=['POST'])
 @login_required
 def change(num):
-    items_id = Item.query.filter_by(user_id=current_user.id).all()
+    if current_user.email == config["Admin"]["email"]:
+        items_id = Item.query.all()
+    else:
+        items_id = Item.query.filter_by(user_id=current_user.id).all()
     title = request.form.get('title')
     price = request.form.get('price')
     final_date = request.form.get('final_date')
     description = request.form.get('description')
     item = Item.query.filter_by(id=num).first()
 
-    new_item = Item(title=title, price=price, final_date=final_date, description=description, user=current_user)
+    new_item = Item(id=item.id, title=title, price=price, final_date=final_date, description=description, user=current_user)
     if item in items_id:
         db.session.delete(item)
         db.session.add(new_item)
@@ -201,12 +213,20 @@ def change(num):
         flash('У вас нет доступа к чужим объявлениям')
         return redirect(url_for("main.profile"))
 
+
 @main.route('/delete/<int:num>')
 @login_required
 def delete(num):
-    item= Item.query.filter_by(id=num).first()
-    items_id = Item.query.filter_by(user_id=current_user.id).all()
+    if current_user.email == config["Admin"]["email"]:
+        items_id = Item.query.all()
+    else:
+        items_id = Item.query.filter_by(user_id=current_user.id).all()
+    item = Item.query.filter_by(id=num).first()
+
     if item in items_id:
         db.session.delete(item)
         db.session.commit()
-        return redirect('/own')
+        return redirect('/profile')
+    else:
+        flash('Вам не принадлежит этот товар. Возможно произошла ошибка')
+    return redirect('/profile')
